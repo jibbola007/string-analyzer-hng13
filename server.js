@@ -1,3 +1,4 @@
+
 const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
@@ -8,125 +9,219 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+
 let stringsDB = [];
+
+
+function analyzeString(value) {
+  const sha256_hash = crypto.createHash("sha256").update(value).digest("hex");
+  const length = value.length;
+  const lower = value.toLowerCase();
+  const is_palindrome = lower === lower.split("").reverse().join("");
+  const word_count = value.trim() === "" ? 0 : value.trim().split(/\s+/).length;
+  const character_frequency_map = value.split("").reduce((acc, ch) => {
+    acc[ch] = (acc[ch] || 0) + 1;
+    return acc;
+  }, {});
+  const unique_characters = Object.keys(character_frequency_map).length;
+  const created_at = new Date().toISOString();
+
+  return {
+    id: sha256_hash,
+    value,
+    properties: {
+      length,
+      is_palindrome,
+      unique_characters,
+      word_count,
+      sha256_hash,
+      character_frequency_map,
+    },
+    created_at,
+  };
+}
 
 
 app.post("/strings", (req, res) => {
   const { value } = req.body;
 
-
   if (value === undefined) {
-    return res.status(400).json({ error: "Missing 'value' in request body" });
+    return res.status(400).json({ error: 'Missing "value" field' });
   }
 
-  
   if (typeof value !== "string") {
-    return res.status(422).json({ error: "'value' must be a string" });
+    return res.status(422).json({ error: '"value" must be a string' });
   }
 
-  
-  const normalized = value.toLowerCase();
-  const exists = stringsDB.find((s) => s.value.toLowerCase() === normalized);
+  const sha256_hash = crypto.createHash("sha256").update(value).digest("hex");
+  const exists = stringsDB.find((s) => s.properties.sha256_hash === sha256_hash);
   if (exists) {
-    return res.status(409).json({ error: "String already exists" });
+    return res.status(409).json({ error: "String already exists in the system" });
   }
 
-  
-  const newEntry = {
-    id: stringsDB.length + 1,
-    value,
-    properties: {
-      length: value.length,
-      is_palindrome:
-        value.toLowerCase() === value.toLowerCase().split("").reverse().join(""),
-      unique_characters: [...new Set(value)].length,
-      word_count: value.trim().split(/\s+/).length,
-      sha256_hash: crypto.createHash("sha256").update(value).digest("hex"),
-      character_frequency_map: Object.entries(
-        value.split("").reduce((acc, c) => {
-          acc[c] = (acc[c] || 0) + 1;
-          return acc;
-        }, {})
-      ).reduce((obj, [k, v]) => ({ ...obj, [k]: v }), {}),
-      created_at: new Date().toISOString(),
-    },
-  };
+  const record = analyzeString(value);
+  stringsDB.push(record);
 
-  stringsDB.push(newEntry);
-  return res.status(201).json(newEntry);
+  return res.status(201).json({
+    id: record.id,
+    value: record.value,
+    properties: record.properties,
+    created_at: record.created_at,
+  });
+});
+
+
+app.get("/strings/:string_value", (req, res) => {
+  const { string_value } = req.params;
+  const lower = string_value.toLowerCase();
+
+  const record = stringsDB.find((r) => r.value.toLowerCase() === lower);
+  if (!record) return res.status(404).json({ error: "String not found in the system" });
+
+  return res.status(200).json({
+    id: record.id,
+    value: record.value,
+    properties: record.properties,
+    created_at: record.created_at,
+  });
 });
 
 
 app.get("/strings", (req, res) => {
   let results = [...stringsDB];
+  const filtersApplied = {};
 
-  const { length, is_palindrome, word_count, unique_characters } = req.query;
-  if (length) results = results.filter((s) => s.properties.length == length);
-  if (is_palindrome)
-    results = results.filter(
-      (s) => s.properties.is_palindrome == (is_palindrome === "true")
-    );
-  if (word_count)
-    results = results.filter((s) => s.properties.word_count == word_count);
-  if (unique_characters)
-    results = results.filter(
-      (s) => s.properties.unique_characters == unique_characters
-    );
+  const {
+    is_palindrome,
+    min_length,
+    max_length,
+    word_count,
+    contains_character,
+  } = req.query;
 
-  res.json({
-    data: results,
+  if (is_palindrome !== undefined) {
+    const val = is_palindrome === "true";
+    results = results.filter((r) => r.properties.is_palindrome === val);
+    filtersApplied.is_palindrome = val;
+  }
+
+  if (min_length !== undefined) {
+    const v = parseInt(min_length, 10);
+    if (isNaN(v)) return res.status(400).json({ error: "min_length must be an integer" });
+    results = results.filter((r) => r.properties.length >= v);
+    filtersApplied.min_length = v;
+  }
+
+  if (max_length !== undefined) {
+    const v = parseInt(max_length, 10);
+    if (isNaN(v)) return res.status(400).json({ error: "max_length must be an integer" });
+    results = results.filter((r) => r.properties.length <= v);
+    filtersApplied.max_length = v;
+  }
+
+  if (word_count !== undefined) {
+    const v = parseInt(word_count, 10);
+    if (isNaN(v)) return res.status(400).json({ error: "word_count must be an integer" });
+    results = results.filter((r) => r.properties.word_count === v);
+    filtersApplied.word_count = v;
+  }
+
+  if (contains_character !== undefined) {
+    if (typeof contains_character !== "string" || contains_character.length !== 1) {
+      return res.status(400).json({ error: "contains_character must be a single character" });
+    }
+    results = results.filter((r) => r.value.includes(contains_character));
+    filtersApplied.contains_character = contains_character;
+  }
+
+  return res.status(200).json({
+    data: results.map((r) => ({
+      id: r.id,
+      value: r.value,
+      properties: r.properties,
+      created_at: r.created_at,
+    })),
     count: results.length,
-    filters_applied: req.query,
+    filters_applied: filtersApplied,
   });
-});
-
-
-app.get("/strings/:value", (req, res) => {
-  const { value } = req.params;
-  const found = stringsDB.find((s) => s.value.toLowerCase() === value.toLowerCase());
-  if (!found) return res.status(404).json({ error: "String not found in the system" });
-  res.json(found);
-});
-
-
-app.delete("/strings/:value", (req, res) => {
-  const { value } = req.params;
-  const index = stringsDB.findIndex((s) => s.value.toLowerCase() === value.toLowerCase());
-  if (index === -1)
-    return res.status(404).json({ error: "String not found in the system" });
-
-  stringsDB.splice(index, 1);
-  res.json({ message: "String deleted successfully" });
 });
 
 
 app.get("/strings/filter-by-natural-language", (req, res) => {
-  const { q } = req.query;
-  if (!q) return res.status(400).json({ error: "Missing natural language query" });
+  const { query } = req.query;
+  if (!query) return res.status(400).json({ error: "Missing query parameter" });
 
-  const query = q.toLowerCase();
-  let results = [...stringsDB];
+  const lower = query.toLowerCase();
+  const parsedFilters = {};
 
-  if (query.includes("palindrome")) {
-    results = results.filter((s) => s.properties.is_palindrome);
-  } else if (query.includes("long") || query.includes("short")) {
-    results = results.sort((a, b) =>
-      query.includes("long") ? b.properties.length - a.properties.length : a.properties.length - b.properties.length
-    );
-  } else if (query.includes("unique")) {
-    results = results.sort((a, b) => b.properties.unique_characters - a.properties.unique_characters);
+  
+  if (lower.includes("palindromic") || lower.includes("palindrome")) {
+    parsedFilters.is_palindrome = true;
   }
 
-  res.json({
-    query,
-    matched: results.length,
-    data: results,
+  if (lower.includes("single word") || lower.includes("single-word")) {
+    parsedFilters.word_count = 1;
+  }
+
+  const longer = lower.match(/longer than (\d+)/);
+  if (longer) {
+    parsedFilters.min_length = parseInt(longer[1], 10) + 1;
+  }
+
+  const shorter = lower.match(/shorter than (\d+)/);
+  if (shorter) {
+    parsedFilters.max_length = parseInt(shorter[1], 10) - 1;
+  }
+
+  const contains = lower.match(/containing the letter (\w)/);
+  if (contains) parsedFilters.contains_character = contains[1];
+
+  
+  if (lower.includes("first vowel")) {
+   
+    parsedFilters.contains_character = "a";
+  }
+
+  if (Object.keys(parsedFilters).length === 0) {
+    return res.status(400).json({ error: "Unable to parse natural language query" });
+  }
+
+ 
+  let results = [...stringsDB];
+  if (parsedFilters.is_palindrome) results = results.filter((r) => r.properties.is_palindrome);
+  if (parsedFilters.word_count !== undefined) results = results.filter((r) => r.properties.word_count === parsedFilters.word_count);
+  if (parsedFilters.min_length !== undefined) results = results.filter((r) => r.properties.length >= parsedFilters.min_length);
+  if (parsedFilters.max_length !== undefined) results = results.filter((r) => r.properties.length <= parsedFilters.max_length);
+  if (parsedFilters.contains_character !== undefined) results = results.filter((r) => r.value.includes(parsedFilters.contains_character));
+
+  return res.status(200).json({
+    data: results.map((r) => ({
+      id: r.id,
+      value: r.value,
+      properties: r.properties,
+      created_at: r.created_at,
+    })),
+    count: results.length,
+    interpreted_query: {
+      original: query,
+      parsed_filters: parsedFilters,
+    },
   });
 });
 
 
-app.get("/", (req, res) => {
-  res.send("String Analyzer API is running!");
+app.delete("/strings/:string_value", (req, res) => {
+  const { string_value } = req.params;
+  const lower = string_value.toLowerCase();
+  const idx = stringsDB.findIndex((r) => r.value.toLowerCase() === lower);
+  if (idx === -1) return res.status(404).json({ error: "String not found in the system" });
+
+  stringsDB.splice(idx, 1);
+  return res.status(204).send();
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+app.get("/", (req, res) => res.send("String Analyzer API is running"));
+
+
+app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
