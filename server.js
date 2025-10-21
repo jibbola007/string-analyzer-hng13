@@ -15,50 +15,50 @@ let stringsDB = [];
 
 
 app.post("/strings", (req, res) => {
-  const { value } = req.body;
-
+    const { value } = req.body;
   
-  if (value === undefined) {
-    return res.status(400).json({ error: "Missing 'value' in request body" });
-  }
-
+    
+    if (value === undefined) {
+      return res.status(400).json({ error: "Missing 'value' in request body" });
+    }
   
-  if (typeof value !== "string") {
-    return res.status(422).json({ error: "'value' must be a string" });
-  }
-
+    
+    if (typeof value !== "string") {
+      return res.status(422).json({ error: "'value' must be a string" });
+    }
   
-  const normalized = value.toLowerCase();
-
+    
+    const normalized = value.toLowerCase();
   
-  const exists = stringsDB.find((s) => s.value.toLowerCase() === normalized);
-  if (exists) {
-    return res.status(409).json({ error: "String already exists" });
-  }
-
-
-  const newEntry = {
-    id: stringsDB.length + 1,
-    value,
-    properties: {
-      length: value.length,
-      is_palindrome: value.toLowerCase() === value.toLowerCase().split("").reverse().join(""),
-      unique_characters: [...new Set(value)].length,
-      word_count: value.trim().split(/\s+/).length,
-      sha256_hash: require("crypto").createHash("sha256").update(value).digest("hex"),
-      character_frequency_map: Object.entries(
-        value.split("").reduce((acc, c) => {
-          acc[c] = (acc[c] || 0) + 1;
-          return acc;
-        }, {})
-      ).reduce((obj, [k, v]) => ({ ...obj, [k]: v }), {}),
-      created_at: new Date().toISOString(),
-    },
-  };
-
-  stringsDB.push(newEntry);
-  return res.status(201).json(newEntry);
-});
+    
+    const exists = stringsDB.find((s) => s.value.toLowerCase() === normalized);
+    if (exists) {
+      return res.status(409).json({ error: "String already exists" });
+    }
+  
+  
+    const newEntry = {
+      id: stringsDB.length + 1,
+      value,
+      properties: {
+        length: value.length,
+        is_palindrome: value.toLowerCase() === value.toLowerCase().split("").reverse().join(""),
+        unique_characters: [...new Set(value)].length,
+        word_count: value.trim().split(/\s+/).length,
+        sha256_hash: require("crypto").createHash("sha256").update(value).digest("hex"),
+        character_frequency_map: Object.entries(
+          value.split("").reduce((acc, c) => {
+            acc[c] = (acc[c] || 0) + 1;
+            return acc;
+          }, {})
+        ).reduce((obj, [k, v]) => ({ ...obj, [k]: v }), {}),
+        created_at: new Date().toISOString(),
+      },
+    };
+  
+    stringsDB.push(newEntry);
+    return res.status(201).json(newEntry);
+  });
 
 app.get("/strings/:string_value", (req, res) => {
   const { string_value } = req.params;
